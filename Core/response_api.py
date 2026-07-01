@@ -7,79 +7,61 @@ import random as rdm
 load_dotenv(dotenv_path="Core/data/.env")
 
 # KEY NAME PROVIDER: lm_studio, ollama
-# KEY MODELS: model_name_used
+# KEY MODELS: model_used
 
 DEBUG = True
-COMMENT_CODE = '//'
 
-# HELPER
+CUSTOM_PROMPT = P(f"{os.getcwd()}/Core/custom_prompt/")
+USER_SETTINGS = P(f"{os.getcwd()}/Core/data/settings.json")
+MODS_SETTINGS = P(f"{os.getcwd()}/Core/data/mods.json")
 
-# BACA FILE PROMPT
-def _cleaner(file_path,random:bool=False):
-    with open(file_path,mode='r',encoding='UTF-8') as f:
-        main_content = [prompt for prompt in f.read().strip().startswith(COMMENT_CODE)]
-    if random:
-        file = rdm.choice(file_path)
+class Response_API():
+    def __init__(self):
+        with open(USER_SETTINGS,mode='r',encoding='UTF-8') as f:
+            self.user_data:dict = json.load(f)
 
-# LISTING MODELS (FOR LOOKS)
-def _listing_models(models:list,provider:str):
-    for model in models:'\n-'.join(model)
-    txt = f"""
-MODELS YANG ANDA MILIKI DI {provider}:
-{model if model else f'tidak terdapat model apapun pada {provider}'}
-{'-'*20}
-[MADE BY SOLOMON]
-    """   
-# DAPETIN SETTINGS
-def _get_settings(which:int = 0):
-    if which == 0:
-        with open(f"{os.getcwd()}/user_settings/settings.json",mode='r',encoding='UTF-8') as f:
-            data = json.load(f)
-            return data
-    else:
-        with open(f"{os.getcwd()}/user_settings/mods.json",mode='r',encoding='UTF-8') as f:
-            data = json.load(f)
-            return data
-
-# DAPETIN CUSTOM PROMPT
-def _final_prompt(custom:bool,prompt:str,provider):
-    path = P(f"{os.getcwd()}/Core/custom_prompt/")
-    with open(path,mode='r',encoding='UTF-8') as f:
-        data:str = f.read() + prompt
+        self.provider:str = self.user_data.get('provider')
         
-    # LM STUDIO PAYLOAD
-    payload = {'role':'system','content': data if provider == 'lm_studio' and custom else prompt}
-    # OLLAMA PAYLOAD
-    payload = {'system':data if provider == 'lm_studio' and custom else prompt}
+    # HELPER
+    def list_of_models(self,models:list):
+        txt = f'YOUR ALL MODELS IN {self.provider.upper()}:\n'
+        for idx,model in enumerate(model,1):
+            txt += f"| [{idx}] {model}\n"
+        return txt.join('\n[MADE BY SOLOMON DEV]')
 
-    return payload
+    def final_payload(self,prompt:str):
+        sys_prompt = self.user_data.get('system_prompt')
+        custom_prompt = self.user_data.get('custom_prompt')
+        combine = "\n\n".join(
+            txt for txt in (sys_prompt,custom_prompt,prompt) if txt
+        )
+        # OLLAMA
+        if self.provider == 'ollama':
+            payload = {"role": "system", "content": combine }
 
-# RESPONSE DECORATION
-def _response_decoration(response:str,token_used:int=0):
-    data = _get_settings()
-    txt = f"""
-FROM {data[model_name_used]}:
-{response}
-[MADE BY SOLOMON]
-"""
+        # LM STUDIO
+        else:
+            payload = {"role":"assistant","content":combine}
+        return payload
+        
+    # MAIN CODE
 
-
-# MAIN CODE
-
-# DAPETIN MODELS
-def get_models():
-    data = _get_settings()
-    provider = data['provider']
-    models = req.get(f"{os.getenv('IP_PORT_SERVER')}{'/api/tags' if provider == 'ollama' else '/v1/models'}")
-    all_models = models.json()['name' if provider == 'ollama' else 'id']
-    return _listing_models(all_models,provider)
-
-# DAPETIN RESPONSE DARI AI
-def response(prompt:str,custom_prompt:bool=False):
-    user_settings = _get_settings()
-    payload = _final_prompt(custom_prompt,prompt,user_settings[provider])
-    data = req.post(f"{os.getenv('IP_PORT_SERVER')}{'/api/tags' if user_settings[provider] == 'olama' else '/v1/models'}",json=payload)
-    data.raise_for_status()
-    response_txt = data.json()['choices'][0]['message']['content']
-    return _response_decoration(response_txt)
-
+    # DAPETIN MODELS
+    def get_models(self):
+        models = req.get(f"{os.getenv('IP_PORT_SERVER')}{'/api/tags' if self.provider == 'ollama' else '/v1/models'}")
+        all_models = models.json()['name' if provider == 'ollama' else 'id']
+        return self.list_of_models([all_models])
+    
+    # DAPETIN RESPONSE DARI AI
+    def response(self,prompt:str):
+        try:
+            data = req.post(url=f"{os.getenv('IP_PORT_SERVER')}{'/api/tags' if self.user_data.get('provider') == 'olama' else '/v1/models'}",json=self.final_payload(prompt))
+            data.raise_for_status()
+            response_txt = data.json()['choices'][0]['message']['content']
+        except req.ConnectTimeout:
+            return 'KENA TIMEOUT. COBA LAGI.'
+        except req.ConnectionError:
+            return "KONEKSI ERROR. SILAHKAN CEK LM STUDIO / OLLAMA LU. KEKNYA MATI DAH."
+        return response_txt
+    
+    
